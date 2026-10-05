@@ -1,6 +1,6 @@
 ---
 title: "Analyse de l’utilisation et de la perception des réseaux sociaux"
-author: "Mohamed Ali Aoun"
+author: "Mohamed Ali Aoun & Ameni Ben Youssef"
 date: "`r Sys.Date()`"
 output:
   word_document: default
