@@ -1,0 +1,749 @@
+---
+title: "Analyse de l’utilisation et de la perception des réseaux sociaux"
+author: "Mohamed Ali Aoun & Ameni Ben Youssef"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  html_document:
+    fig_height: 4
+    fig_width: 6
+  pdf_document: default
+---
+# Introduction & Statistique descriptive
+
+Ce rapport propose une analyse statistique exploratoire des usages et perceptions des réseaux sociaux à partir de données d’enquête. À l’aide de méthodes d’analyse multivariée (ACP, ACM et classification), l’objectif est d’identifier les dimensions structurant les comportements et de dégager des profils types d'utilisateurs.
+
+Toutefois, avant d'approfondir ces analyses complexes, il convient de dresser un panorama de notre base de données. Les statistiques descriptives présentées ci-après permettent de caractériser notre échantillon et de poser les jalons nécessaires à la compréhension des dynamiques multidimensionnelles qui suivent.
+
+
+```{r}
+# Chargement des données
+library(FactoMineR, quietly = TRUE)
+library(factoextra, quietly = TRUE)
+data <- read.csv("C:\\Users\\dalia\\Downloads\\data analysis (Responses) - Form Responses 1.csv")
+```
+
+# Répartition par age
+
+```{r}
+
+data$Age <- as.numeric(gsub("[^0-9]", "", data$Quelle.est.votre.age..))
+
+library(ggplot2)
+
+ggplot(data, aes(x = Age)) +
+  geom_bar(fill = "#00AFBB") +
+  geom_text(
+    stat = "count",
+    aes(label = ..count..),
+    vjust = -0.5
+  ) +
+  labs(
+    title = "Répartition des répondants par âge",
+    x = "Âge",
+    y = "Effectif"
+  ) +
+  theme_minimal()
+```
+
+L’échantillon est majoritairement composé de jeunes adultes, avec une forte concentration entre 20 et 24 ans (particulièrement autour de 21–23 ans). Les profils de moins de 20 ans et de plus de 25 ans sont rares, à l'exception de quelques individus isolés. Cette répartition cible ainsi un public jeune, au cœur de l'usage quotidien des réseaux sociaux.
+
+# Répartition par situation socio-professionnelle
+
+```{r}
+# Table des effectifs
+invisible(table(data$Situation.socio.professionnelle))
+
+# Graphique
+ggplot(data, aes(x = Situation.socio.professionnelle, 
+                 fill = Situation.socio.professionnelle)) +
+  geom_bar() +
+  geom_text(stat='count', aes(label=..count..), vjust=-0.5) +
+  labs(title = "Répartition par situation socio-professionnelle",
+       x = "", y = "Effectif") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")  # Enlever la légende (redondante avec l'axe X)
+```
+
+La répartition des répondants selon la situation socio-professionnelle montre une forte prédominance des étudiants, qui constituent la majorité de l’échantillon. Les salariés représentent une part plus réduite des répondants, tandis que les retraités sont très faiblement représentés.
+
+
+# Répartition géographique
+
+```{r}
+library(dplyr, quietly = TRUE)
+library(ggplot2)
+
+# Créer une nouvelle colonne avec noms simplifiés
+data <- data %>%
+  mutate(Région_simple = gsub("\\s*\\(.*\\)", "", Région))
+
+# Table des effectifs
+invisible(table(data$Région_simple))
+
+# Graphique
+ggplot(data, aes(x = Région_simple, fill = Région_simple)) +
+  geom_bar() +
+  geom_text(stat='count', aes(label=..count..), vjust=-0.5) +
+  labs(title = "Répartition géographique de l'échantillon",
+       x = "Région", y = "Effectif") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")  # Enlever la légende (redondante)
+```
+
+L’échantillon est fortement concentré dans le Nord-Est (84,6 %, soit 44 répondants), principalement en raison de la densité démographique du Grand Tunis et d'une diffusion plus large en milieu urbain. Les autres régions restent marginales, avec seulement 8 répondants répartis entre le Centre-Est, le Nord-Ouest et le Sud. 
+
+# Problématique
+
+Notre problématique se décline en trois questions centrales visant à comprendre le rapport des individus aux réseaux sociaux :
+
+- **1. Quelles sont les grandes dimensions qui opposent ou lient les attitudes des usagers ?** Pour y répondre, nous utilisons l'Analyse en Composantes Principales (ACP). Cette méthode permet de vérifier si l'intensité d'usage est liée à la dépendance, et si la peur pour la protection des données freine réellement l'utilisation ou s'oppose aux bénéfices perçus.
+
+- **2. Comment les pratiques concrètes et les profils qualitatifs s'associent-ils ?** Pour y répondre, nous utilisons l'Analyse des Correspondances Multiples (ACM). Elle sert à découvrir des types de comportements (comme la régulation du temps de connexion) et à voir si un usage intensif peut coexister avec une vision critique des plateformes.
+
+- **3. Peut-on classer les utilisateurs en groupes distincts et homogènes ?** Pour y répondre, nous utilisons la Classification Automatique (basée sur l'ACP). Elle permet de segmenter la population en profils concrets, tels que l'utilisateur "professionnel", le "routinier dépendant" ou "l'inquiet distant", afin de donner un visage humain aux données statistiques.
+
+
+
+# ACP
+
+```{r}
+# Sélection des variables du Bloc 2 (Perceptions et comportements) et renommage pour faciliter l’interprétation des graphiques de l’ACP
+
+pca2_vars <- c(
+  "Je.fais.attention.à.ma.vie.privée.sur.les.réseaux.sociaux.",                    # Colonne 21
+  "Je.suis.inquiet.ète..pour.la.sécurité.de.mes.données.personnelles.",            # Colonne 31
+  "Je.partage.rarement.mes.informations.personnelles.",                            # Colonne 28
+  "Je.pense.que.mes.données.sont.utilisées.sans.mon.consentement.",               # Colonne 35
+  "Je.me.sens.en.sécurité.en.utilisant.les.réseaux.sociaux.",                     # Colonne 26
+  "Je.consulte.les.réseaux.sociaux.dès.le.réveil.",                               # Colonne 22
+  "J.ai.du.mal.à.passer.une.journée.sans.réseaux.sociaux.",                       # Colonne 32
+  "Les.réseaux.sociaux.font.partie.de.ma.routine.quotidienne.",                   # Colonne 27
+  "J.utilise.les.réseaux.sociaux.avant.de.dormir.",                               # Colonne 34
+  "Je.pense.être.dépendant.e..des.réseaux.sociaux",                               # Colonne 25
+  "Les.réseaux.sociaux.m.aident.à.rester.informé.e..de.l.actualité.",             # Colonne 24
+  "Ils.me.permettent.de.découvrir.de.nouvelles.opportunités..ex..études..travail..événements..",  # Colonne 30
+  "Les.réseaux.sociaux.facilitent.ma.communication.avec.les.autres.",             # Colonne 33
+  "Les.réseaux.sociaux.me.permettent.d.élargir.mon.réseau.professionnel.",        # Colonne 29
+  "Je.pourrais.facilement.vivre.sans.réseaux.sociaux."                            # Colonne 23
+)
+
+pca2_data <- data[, pca2_vars]
+# Renommage des variables en Q1, Q2, ..., Q15 pour une lecture plus claire des plans factoriels
+colnames(pca2_data) <- paste0("Q", 1:ncol(pca2_data))
+
+```
+
+
+```{r}
+# Table de correspondance entre les codes (Q1–Q15) et les questions originales du questionnaire
+question_mapping <- data.frame(
+  Code = paste0("Q", 1:15),
+  Question = pca2_vars
+)
+
+question_mapping
+
+```
+
+
+# 1. Choix du nombre d'axes à retenir
+```{r}
+library(dplyr)
+library(FactoMineR)
+library(factoextra)
+
+
+res_pca2 <- PCA(pca2_data, scale.unit = TRUE, graph = FALSE)
+fviz_eig(res_pca2, addlabels = TRUE)
+```
+
+```{r}
+head(res_pca2$eig)
+```
+
+Pour déterminer la dimensionnalité pertinente de l'étude, nous croisons trois critères standards :
+
+**1. Le critère de Kaiser:**
+Ce critère préconise de retenir les axes dont la valeur propre (eigenvalue) est supérieure à 1
+Analyse : Nos composantes 1 à 5 ont des valeurs propres respectives de $3.89, 1.90, 1.68, 1.36$ et $1.29$, Ce critère suggère de retenir *5 axes*.
+
+**2. Le critère du "Coude":**
+On observe une chute brutale après le premier axe (26%), puis une pente qui s'adoucit après le deuxième axe (12.7%). Un "coude" est visible au niveau du 2ème axe, Ce critère suggère de retenir *2 axes*.
+
+**3. Taux d'inertie cumulée:**
+On cherche à minimiser le nombre des axes en maximisant l'inertie cumulee. Les deux premiers axes ne cumulent que 38.6%. Il faut attendre le 5ème axe pour capturer *67,6%* de l'information, Ce critère pousse à retenir *5 axes*.
+
+**Synthèse du choix** : Nous conservons 5 axes pour l'analyse théorique, tout en privilégiant les plans 1-2, 1-3 et 1-5 pour la visualisation.
+
+```{r}
+res_pca2$var$coord
+```
+
+
+# 2. Analyse des cartes des variables (Analyse Factorielle)
+NOTE : Nous avons fixé un seuil de significativité à |0.50| pour considérer qu'une question décrit un axe.
+
+```{r}
+fviz_pca_var(
+  res_pca2,
+  col.var = "contrib",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = TRUE
+)
+```
+
+## Le Plan Principal : La structure fondamentale "Usage-Utilité vs Sécurité"
+
+Ce premier plan met en évidence une structuration cohérente avec certaines hypothèses initiales du questionnaire.
+
+**Axe 1 (26% de variance) : Le "Degré d'Intégration et d'Utilité"**
+
+Cet axe oppose **l'usage Intensif** au **détachement total**. 
+
+Pôle Positif (Usage Intensif) : Les variables liées à la routine (Q8), l'usage au coucher/réveil (Q9, Q6) et la difficulté de s'en passer (Q7) sont très fortes. Elles sont corrélées aux bénéfices perçus comme l'actualité (Q11) et les opportunités (Q12, Q14).
+
+Pôle Négatif (Détachement) : La Q15 ("Vivre sans") est à l'opposé avec un score de $-0.60$.
+
+Conclusion : Plus notre score est élevé sur cet axe, plus nous sommes dans un usage "fusionnel" et utilitaire des réseaux.
+
+**Axe 2 (12.7% de variance) : Le "Climat de Confiance et de Sécurité**
+
+Cet axe n'est pas lié à la fréquence d'utilisation, mais au sentiment psychologique de l'utilisateur face à la plateforme.
+
+Pôle Positif (Inquiétude) : Dominé par l'inquiétude pour les données (Q2 : 0.61) et le sentiment de manque de consentement (Q4 : 0.62).
+
+Pôle Négatif (Confiance) : La sensation de sécurité (Q5 : -0.59) s'y oppose radicalement.
+
+Conclusion : cette Axe mesure le degré de méfiance numérique, une valeur élevée traduit une forte inquiétude face à l'exploitation des données, tandis qu'une valeur faible indique un sentiment de sécurité et une confiance totale.
+
+## 2.2 Analyse des dimensions secondaires (Nuances comportementales)
+
+Même si leur inertie est plus faible, les axes 3 et 5 affinent notre compréhension :
+
+```{r}
+fviz_pca_var(
+  res_pca2,
+  axes = c(1, 3),  
+  col.var = "contrib",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = TRUE
+)
+```
+
+**Axe 3 (11.2%) : La "Vigilance Active". **
+Cet axe est porté presque exclusivement par la Q1 (0.70). Il isole les comportements de protection active de la vie privée, qui peuvent exister chez un "addict"(Axe1) comme chez un utilisateur occasionnel, Il distingue aussi ceux qui ne se contentent pas d'avoir peur (Axe 2), mais qui agissent concrètement.
+
+- **Exemple :** Un utilisateur qui configure manuellement ses paramètres de confidentialité et limite qui peut voir ses publications, qu'il soit accro ou non.
+
+```{r}
+fviz_pca_var(
+  res_pca2,
+  axes = c(1, 5),  
+  col.var = "contrib",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = TRUE
+)
+```
+
+**Axe 5 (8.6%) : La Sociabilité Technique (L'Usage Outil) .**
+Dominé par la Q13 (0.75) et l'absence de dépendance (Q10 : -0.63). Il définit un profil qui utilise les réseaux comme un simple outil de communication sans y être attaché émotionnellement.
+
+- **Exemple :** L'utilisateur de *WhatsApp* ou *Messenger*. Il utilise l'application de manière intensive pour échanger avec ses proches (Q13), mais il ne ressent pas de dépendance psychologique (Q10) : il n'y "perd pas son temps", il communique simplement. Si l'application changeait, il passerait simplement à un autre outil de messagerie.
+
+
+## 2.3 Le problème de la Question 3 : L'indépendance du partage
+La question Q3 ("Je partage rarement mes informations") ne sature significativement sur aucun axe (maximum de -0.47 sur l'axe 4). Nous en tirons deux conclusions :
+
+- **Ambiguïté sémantique :** Nous pensons que Le terme *"partager"* ou le terme *"rarement"* pourraient être interprétés différemment par notre échantillon.
+
+- **Indépendance comportementale :** Le fait de restreindre ses partages ne semble pas corrélé à l'inquiétude déclarée (Axe 2). On peut se dire inquiet mais continuer à partager par "automatisme social".
+
+
+# 3. Analyse des individus et nuances de profils
+En croisant les positions des variables et des individus, nous mettons en évidence plusieurs profils typiques illustrant les grandes logiques d’usage des réseaux sociaux.
+
+```{r}
+fviz_pca_ind(
+  res_pca2,
+  col.ind = "cos2",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = TRUE
+)
+```
+
+- **Les profils très inquiets (Individu 21) :** marqués par une forte anxiété sur l'axe 2, indépendamment de leur usage.
+
+- **Les utilisateurs intensifs et convaincus (Individus 45, 3) :** portés par une forte utilité perçue sur l'axe 1.
+
+- **Les utilisateurs intensifs et très inquiets (Individus 53, 52) :** cumulent une forte pratique et une forte anxiété.
+
+- **Les profils sereins et confiants (Individu 50) :** caractérisés par une absence totale d'inquiétude sur l'axe 2.
+
+- **Les utilisateurs intensifs et sereins (Individu 13) :** allient un usage fort à une totale confiance.
+
+- **Les profils détachés (Individus 14) :** se définissent par un très faible usage ou un désintérêt pour les réseaux.
+
+```{r}
+fviz_pca_ind(
+  res_pca2,
+  axes = c(1, 3),
+  col.ind = "cos2",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = TRUE
+)
+```
+
+- **Les profils protecteurs (Individu 7) :** se caractérisent exclusivement par une vigilance très active et une attention forte portée à la vie privée.
+
+- **Les utilisateurs intégrés et vigilants (Individu 5) :** allient un usage intensif et utile des réseaux à une protection active de leurs données.
+
+- **Les profils détachés et insouciants (Individu 47) :** cumulent un faible usage des réseaux et une absence totale de mesures de protection de la vie privée.
+
+- **Les profils permissifs (Individus 23, 16) :** se distinguent uniquement par un manque important de vigilance et de protection de leurs données personnelles.
+
+- **Les profils distants mais prudents (Individu 18) :** affichent un détachement vis-à-vis de l'usage des réseaux tout en maintenant une vigilance active sur leur vie privée.
+
+```{r}
+fviz_pca_ind(
+  res_pca2,
+  axes = c(1, 5),
+  col.ind = "cos2",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = TRUE
+)
+```
+
+- **Les profils dépendants et non-communicants (Individu 42) :** se caractérisent par un fort sentiment de dépendance et un manque de recul émotionnel, sans que l'on puisse définir leur niveau d'usage global.
+
+- **Les utilisateurs intensifs "captifs" (Individu 32) :** allient un usage quotidien intégré à une forte sensation de dépendance psychologique (faible sociabilité technique).
+
+- **Les communicateurs pragmatiques et distants (Individu 40) :** utilisent les réseaux exclusivement comme des outils de communication sans aucune intégration routinière ou dépendance.
+
+- **Les utilisateurs équilibrés et intégrés (Individu 17) :** perçoivent les réseaux comme utiles au quotidien tout en conservant une approche de "communication-outil" maîtrisée.
+
+- **Les profils détachés et émotionnellement liés (Individu 12) :** affichent un faible usage global mais conservent une certaine forme de dépendance ou d'attachement affectif (manque de recul technique).
+
+# 4. Conclusion: 
+
+Cette Analyse en Composantes Principales met en évidence des relations claires entre les perceptions et les comportements liés aux réseaux sociaux.
+
+Les résultats montrent qu’une forte intensité d’utilisation des réseaux sociaux est étroitement associée à un sentiment de dépendance et à leur intégration dans la routine quotidienne. Ces éléments se structurent autour d’une même dimension, confirmant l’existence d’un usage parfois excessif.
+
+Par ailleurs, les individus les plus sensibles aux questions de sécurité et de confidentialité présentent des comportements plus prudents, tels qu’une attention accrue à la vie privée et un partage limité des informations personnelles. Cette dimension apparaît relativement indépendante de l’intensité d’utilisation.
+
+Enfin, l’ACP révèle une opposition partielle entre les bénéfices perçus des réseaux sociaux (information, communication, opportunités) et les craintes liées à l’utilisation des données personnelles, soulignant une ambivalence dans les attitudes des utilisateurs.
+
+Ainsi, l’ACP  permet d’identifier trois logiques principales : l’usage et la dépendance, la prudence face à la sécurité, et l’utilité perçue, offrant une lecture synthétique des comportements et perceptions liés aux réseaux sociaux.
+
+**Note Méthodologique : Perspectives d'amélioration**
+
+*Il est important de noter qu'une variable supplémentaire aurait considérablement enrichi notre analyse : l'application la plus utilisée par chaque répondant. Bien que nous ayons identifié des profils types (ex: l'usager fonctionnel, l'addict, le prudent), disposer de cette donnée nous aurait permis de croiser nos axes factoriels avec des plateformes réelles. Nous aurions pu, par exemple, vérifier statistiquement si les utilisateurs de WhatsApp se retrouvent majoritairement dans le profil de ***"Sociabilité Technique" (Axe 5)** *ou si les utilisateurs d'Instagram sont plus représentés sur l'Axe de la* **"Dépendance" (Axe 1).**
+
+**Nous avons réalisé l'importance cruciale de cette variable après la phase de collecte ; son intégration dans une étude future permettrait de valider empiriquement les profils théoriques dégagés par cette ACP.**
+
+
+
+# ACM
+
+```{r}
+acm_data <- data %>%
+  select(
+    Utilisez.vous.les.réseaux.sociaux.pour.suivre.l.actualité..,
+    Avez.vous.déjà.rencontré.quelqu.un.en.vrai.grâce.aux.réseaux.sociaux..,
+    Avez.vous.déjà.désactivé.un.compte.de.réseau.social..,
+    Pensez.vous.que.les.réseaux.sociaux.influencent.les.opinions.politiques..,
+    Utilisez.vous.les.réseaux.sociaux.tous.les.jours..,
+    Avez.vous.déjà.ressenti.une.baisse.de.productivité.à.cause.des.réseaux.sociaux..,
+    Les.utilisez.vous.pour.des.raisons.professionnelles..travail..études..networking...,
+    Avez.vous.déjà.supprimé.ou.désinstallé.une.application.pour.réduire.votre.temps.d.écran..,
+    Les.consultez.vous.dès.le.réveil.ou.avant.de.dormir..,
+    Pensez.vous.que.la.société.serait.meilleure.avec.moins.de.réseaux.sociaux..
+  ) %>%
+  na.omit()
+
+
+```
+
+
+
+```{r}
+# Convertir en facteurs
+acm_data <- acm_data %>% mutate(across(everything(), as.factor))
+
+# Renommer en Q1–Q10 pour la lisibilité
+colnames(acm_data) <- c(
+  "Q1",
+  "Q2",
+  "Q3",
+  "Q4",
+  "Q5",
+  "Q6",
+  "Q7",
+  "Q8",
+  "Q9",
+  "Q10"
+)
+```
+
+
+
+```{r}
+str(acm_data)
+summary(acm_data)
+
+```
+
+
+
+# 1. choix des axes
+```{r}
+res.mca <- MCA(acm_data, graph = FALSE)
+res.mca$eig
+
+
+```
+
+```{r}
+fviz_eig(res.mca, addlabels = TRUE)
+```
+
+**Critère théorique propre à l’ACM **
+- Nombre d'axes factoriels (p - m) = 10 
+- Seuil (1/m) = 0.1. On retiendra les axes avec λ > 0.1, conduit à retenir 5 axes (1,2,3,4 et 5).
+
+**Critère du coude **
+
+Le diagramme montre une chute au niveau du troisième axe : on interprètera 3 premiers axes.
+
+**Inertie cumulée**
+Axe 1 à 5 = 73 %
+
+**Synthèse du choix** : Nous conservons 5 axes pour l'analyse théorique, tout en privilégiant les plans 1-2, 1-3 et 1-5 pour la visualisation.
+
+
+# 2. Cartes des modalités
+
+```{r}
+fviz_mca_var(
+  res.mca,
+  col.var = "contrib",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = TRUE
+)
+
+```
+**Axe 1 (Dim 1 – 18,7 %) : Intensité d’usage vs distanciation des réseaux sociaux**
+
+L’axe 1 est principalement structuré par l’opposition entre des modalités traduisant un usage intensif et intégré des réseaux sociaux et des modalités associées à une utilisation plus distanciée. Du côté négatif de l’axe se regroupent les modalités Q1_OUI, Q4_OUI, Q5_OUI, Q7_OUI et Q9_OUI, indiquant des individus qui utilisent quotidiennement les réseaux sociaux, s’y informent, les mobilisent à des fins professionnelles et les consultent de manière ritualisée. Ces modalités, proches les unes des autres, révèlent une forte cohérence des réponses et traduisent une intégration marquée des réseaux sociaux dans les pratiques quotidiennes. À l’opposé, le côté positif de l’axe est dominé par les modalités Q5_NON, Q9_NON, Q2_NON et Q10_OUI, associées à des individus peu utilisateurs, ne consultant pas régulièrement les réseaux et exprimant une vision critique de leur impact sur la société.
+
+
+**Axe 2 (Dim 2 – 17,3 %) : Perception des effets négatifs et régulation de l’usage**
+
+L’axe 2 structure les modalités selon la perception des effets des réseaux sociaux et les comportements de contrôle associés. Dans la partie supérieure du plan factoriel apparaissent les modalités Q6_NON et Q8_NON, traduisant l’absence de baisse de productivité ressentie et l’absence de démarches visant à réduire le temps passé sur les réseaux sociaux. Ces réponses caractérisent des individus pour lesquels l’usage des réseaux n’est pas perçu comme problématique. À l’inverse, la partie inférieure de l’axe regroupe les modalités Q6_OUI, Q8_OUI et Q3_OUI, associées à une perception négative de l’impact des réseaux sociaux, notamment en termes de productivité, et à la mise en place de stratégies actives de régulation telles que la désactivation de comptes ou la réduction du temps d’écran.
+
+
+```{r}
+fviz_mca_var(
+  res.mca,
+  axes = c(1,3),
+  repel = TRUE,
+  col.var = "contrib",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07")
+)
+
+```
+**Axe 3 (Dim 3 – 14,9 %) : Positionnement face à l’utilité sociale et professionnelle**
+
+L’axe 3 met en évidence une opposition spécifique, indépendante de l’intensité globale d’usage. Dans la partie positive de l’axe apparaissent les modalités Q4_NON et Q7_NON, indiquant une remise en question du rôle des réseaux sociaux dans l’influence des opinions politiques et dans les usages professionnels. Ces modalités traduisent une perception limitée de l’utilité sociale et professionnelle des réseaux sociaux. À l’inverse, la partie négative de l’axe regroupe des modalités telles que Q4_OUI, Q7_OUI, Q2_OUI et Q10_NON, associées à une reconnaissance de l’influence sociale et politique des réseaux et à leur intégration dans les interactions et les usages quotidiens.
+
+```{r}
+fviz_mca_var(
+  res.mca,
+  axes = c(1,4),
+  repel = TRUE,
+  col.var = "contrib",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07")
+)
+```
+**Axe 4 (Dim 4 – 11,7 %) : Rapport à l’actualité et perception des effets indirects des réseaux sociaux**
+
+L’axe 4 met en évidence une opposition spécifique portant sur le rapport à l’information et la perception des effets indirects des réseaux sociaux. Dans la partie positive de l’axe se distinguent principalement les modalités Q1_NON et Q4_NON, indiquant des individus qui n’utilisent pas les réseaux sociaux pour suivre l’actualité et qui ne perçoivent pas leur influence sur les opinions politiques. Ces modalités traduisent un détachement à la fois informationnel et cognitif vis-à-vis des réseaux sociaux. À l’inverse, la partie négative de l’axe regroupe des modalités telles que Q1_OUI, Q4_OUI, Q6_OUI et Q9_OUI, associées à un usage informationnel des réseaux et à la reconnaissance de leur influence sur les opinions et les comportements.
+
+
+```{r}
+fviz_mca_var(
+  res.mca,
+  axes = c(1,5),
+  repel = TRUE,
+  col.var = "contrib",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07")
+)
+
+```
+**Axe 5 (Dim 5 – 10,5 %) : Rapport critique à l’usage quotidien et détachement cognitif**
+
+L’axe 5 met en évidence une opposition spécifique relative au rapport critique et au détachement vis-à-vis de l’usage des réseaux sociaux. La partie positive de l’axe est dominée par la modalité Q4_NON, qui contribue fortement à la structuration de cette dimension et traduit une remise en question de l’influence des réseaux sociaux sur les opinions politiques. Cette modalité est associée à une posture de distance cognitive vis-à-vis des effets sociétaux des réseaux. À l’opposé, la partie négative de l’axe regroupe des modalités telles que Q6_OUI, Q3_NON et Q8_OUI, qui renvoient à des individus percevant des effets négatifs liés à l’usage des réseaux sociaux et adoptant des comportements de régulation.
+
+
+# 3. Cartes des individus
+
+```{r}
+fviz_mca_ind(
+  res.mca,
+  repel = TRUE,
+  col.ind = "cos2",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07")
+)
+
+```
+
+Le premier axe oppose un profil d’individus pour lesquels les réseaux sociaux occupent une place centrale dans la vie quotidienne, notamment pour s’informer, communiquer et dans un cadre professionnel, à un profil plus distancié caractérisé par un usage non quotidien, l’absence de consultation ritualisée et une perception critique de l’impact des réseaux sur la société.
+
+Le second axe distingue les individus ne percevant pas d’effets négatifs liés à l’utilisation des réseaux sociaux, notamment en termes de productivité, de ceux qui déclarent une baisse de productivité et mettent en place des stratégies actives de régulation telles que la désactivation de comptes ou la réduction du temps d’écran.
+
+```{r}
+fviz_mca_ind(
+  res.mca,
+  axes = c(1, 3),
+  repel = TRUE,
+  col.ind = "cos2",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07")
+)
+
+```
+
+Le troisième axe met en évidence des différences plus fines dans les perceptions et les attitudes vis-à-vis des réseaux sociaux, indépendamment de l’intensité globale d’usage. Il oppose des individus exprimant une prise de distance ou un certain scepticisme quant au rôle et à l’influence des réseaux sociaux à des individus qui leur reconnaissent davantage une utilité sociale et informationnelle, sans pour autant adopter des positions extrêmes sur les dimensions principales.
+
+
+```{r}
+fviz_mca_ind(
+  res.mca,
+  axes = c(1, 4),
+  repel = TRUE,
+  col.ind = "cos2",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07")
+)
+```
+
+Le quatrième axe met en évidence une opposition secondaire entre des individus qui se montrent globalement détachés des dimensions informationnelles et cognitives des réseaux sociaux et des individus qui reconnaissent davantage leur rôle dans la diffusion de l’information et l’influence des opinions. Cet axe distingue ainsi des profils exprimant une distance vis-à-vis de l’impact sociétal des réseaux sociaux de profils pour lesquels ces plateformes conservent une certaine importance sur le plan informationnel.
+
+```{r}
+fviz_mca_ind(
+  res.mca,
+  axes = c(1, 5),
+  repel = TRUE,
+  col.ind = "cos2",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07")
+)
+```
+
+Le cinquième axe met en évidence une opposition secondaire entre des profils d’individus exprimant une posture de recul et de détachement vis-à-vis des réseaux sociaux et des profils pour lesquels certaines dimensions liées à l’usage ou aux perceptions des réseaux demeurent plus marquées. Cet axe isole ainsi des profils spécifiques et moins fréquents, traduisant des attitudes particulières qui ne structurent pas l’analyse principale mais apportent des nuances complémentaires à la compréhension globale des comportements étudiés.
+
+
+
+# 4. Conclusion
+
+L’ACM réalisée met en évidence une structuration claire et cohérente des comportements et des perceptions vis-à-vis des réseaux sociaux. L’axe principal révèle une opposition marquée entre un usage intensif et intégré des réseaux sociaux, orienté vers l’information, la communication et les usages professionnels, et un usage plus distancié caractérisé par une fréquence réduite et une perception critique de leur impact sociétal. Le second axe distingue les individus selon leur perception des effets négatifs des réseaux sociaux et la mise en place, ou non, de stratégies de régulation de l’usage. Les axes secondaires apportent des nuances complémentaires en affinant la compréhension des attitudes cognitives, informationnelles et critiques des individus, sans remettre en cause la structure principale de l’analyse.
+Globalement, l’ACM met en évidence l’existence de profils différenciés allant de l’intégration forte des réseaux sociaux à des postures de distanciation et de contrôle, tout en soulignant que la majorité des individus présente des profils intermédiaires.
+
+
+# CLASSIFICATION AUTOMATIQUE
+
+# 1.Détermination du nombre de clusters
+
+
+# 1.1 L'analyse du saut d'inertie
+
+Pour choisir le nombre de groupes (clusters) optimal, nous observons la structure de la hiérarchie construite par l'algorithme d'AGNES.
+
+```{r}
+library(cluster)
+clustering<-agnes(scale(res_pca2$ind$coord[,1:5]), method="ward")
+ plot(clustering,xlab="individuals",main="")
+ title("Dendrogram")
+ clustering2<-as.hclust(clustering)
+ plot(rev(clustering2$height), type="h", ylab="height")
+ 
+```
+
+
+**Analyse du graphique des hauteurs (Graphique)**
+
+- **Observation du saut majeur :** En examinant le graphique des hauteurs, on identifie que le saut le plus significatif se situe entre la **6ème** et la **7ème** barre.
+
+- **Justification statistique :** Ce saut marqué indique qu'en passant de 6 à 5 clusters, on perdrait une quantité importante d'homogénéité (on forcerait le regroupement de deux groupes qui sont statistiquement très distincts). À l'inverse, au-delà de 6 clusters, les gains de précision deviennent minimes.
+
+**Décision :** D’après le critère du saut d’inertie, nous fixons la coupure au niveau de **6 clusters.** Ce choix permet de capturer la diversité maximale de notre échantillon tout en maintenant une structure lisible.
+
+# 1.2 Validation par le package NbClust
+
+Pour consolider notre choix basé sur le saut d'inertie, nous avons sollicité le package **NbClust**, qui teste simultanément **26 indices statistiques** différents pour déterminer le nombre optimal de clusters.
+
+```{r}
+library(NbClust)
+nb <- NbClust(
+  data = res_pca2$ind$coord[,1:5],
+  distance = "euclidean",
+  min.nc = 2,
+  max.nc = 10,
+  method = "kmeans"
+)
+```
+
+**Analyse des résultats**
+
+Les résultats de NbClust présentent une distribution bimodale intéressante :
+
+- **8 indices** suggèrent une partition en **2 clusters**. Cela correspond à la structure majeure "Usagers Intensifs" vs "Usagers Détachés" que nous avons vue sur l'Axe 1 de l'ACP.
+
+- **8 indices** suggèrent une partition en **7 clusters**. Cela prouve qu'il existe une richesse comportementale importante qui nécessite un découpage plus fin pour être captée.
+
+L'indice de la majorité propose 2 clusters comme solution "optimale" au sens mathématique le plus strict. Cependant, une telle partition masquerait les nuances cruciales que nous avons identifiées (comme la différence entre l'usage professionnel, l'usage routine et l'inquiétude sécuritaire).
+
+**Décision finale**
+
+D'après ce critère de compromis entre la majorité statistique (2 clusters) et la richesse des indices secondaires (7 clusters), nous maintenons notre décision de couper à **6 clusters.**
+
+
+```{r}
+# Visualiser le dendrogramme pour k=6
+plot(clustering2, main="Dendrogramme", xlab="", sub="")  
+rect.hclust(clustering2, k=6, border="blue")  
+```
+
+# 2. Répartition des effectifs par groupe
+
+La segmentation des 53 individus aboutit à une distribution variée, permettant d'identifier le poids de chaque comportement dans l'échantillon.
+
+```{r}
+k <- 6
+clusters <- cutree(clustering2, k=k)
+
+# Ajouter les clusters au dataset original
+pca2_data_clustered <- cbind.data.frame(pca2_data, as.factor(clusters))
+colnames(pca2_data_clustered)[ncol(pca2_data_clustered)] <- "Cluster"
+
+# Voir la répartition des individus par cluster
+table(clusters)
+```
+
+# 3.  Caractérisation statistique des profils
+
+L'analyse montre que l'identité de chaque groupe est statistiquement marquée par des comportements tranchés, notamment sur les axes de la dépendance et de la sécurité.
+
+```{r}
+# Caractériser les clusters avec catdes
+cluster_description <- catdes(pca2_data_clustered, num.var=ncol(pca2_data_clustered))
+
+# Afficher les résultats
+cluster_description
+```
+**Cluster 1 : L'Addict Utilitariste **
+
+Ce groupe est marqué par une dépendance assumée justifiée par l'utilité perçue de l'outil.
+
+- **Addiction et Opportunités :** Ils se sentent tres dépendants (Q10, v.test=3.03) car ils voient les réseaux comme un levier pour leur avenir (Q12, v.test=1.97).
+
+- **Inquiétude vs Réalité :** Bien que très inquiets pour leurs données (Q2, v.test=2.06), ils sont incapables de vivre sans l'outil (Q15, v.test=-2.12).
+
+- **Vie privée :** Ils sont ceux qui partagent le plus leurs informations (Q3, v.test=-3.32).
+
+- **Description :** Un utilisateur "hyper-connecté" qui admet une addiction aux plateformes car il y centralise toute son information et ses projets, acceptant le risque sur ses données comme un coût nécessaire.
+
+**Cluster 2 : L'Inquiet Subissant **
+
+C'est le profil le plus représenté, caractérisé par une méfiance permanente.
+
+- **Sécurité et Consentement :** Ils sont convaincus que leurs données sont utilisées sans accord (Q4, v.test=2.49) et sont très inquiets (Q2, v.test=2.30).
+
+- **Usage Contraint :** Ils utilisent les réseaux pour la communication (Q13, v.test=2.13) et ont du mal à s'en passer (Q7, v.test=1.98) malgré un sentiment d'insécurité total (Q5, v.test=-3.05).
+
+- **Vigilance :** Paradoxalement, ils font moins attention à leur vie privée que la moyenne (Q1, v.test=-2.52).
+
+- **Description :** L'utilisateur "malgré lui", qui a peur des réseaux mais se sent obligé d'y rester pour garder le contact, par exemple l'utilisateur qui critique Facebook pour l'espionnage mais qui y reste car "tout le monde est dessus".
+
+**Cluster 3 : Le Détaché Souverain **
+
+Le groupe le plus résilient et le plus mature de l'échantillon.
+
+- **Autonomie :** Ils affirment pouvoir vivre sans réseaux très facilement (Q15, v.test=3.33) et rejettent l'idée de dépendance (Q10, v.test=-3.79).
+
+- **Vie privée :** Ils sont les plus protecteurs de leurs données (Q3, v.test=2.12).
+
+- **Absence de routine :** Ils évitent les réseaux au réveil (Q6, v.test=-2.84), avant de dormir (Q9, v.test=-2.76) et ne les intègrent pas à leur routine (Q8, v.test=-3.29).
+
+- **Description :** Un utilisateur qui a repris le pouvoir sur l'algorithme et qui utilise les réseaux de manière très ponctuelle.
+
+**Cluster 4 : L'Indifférent **
+Un profil caractérisé par un désengagement total.
+
+- **Désintérêt :** Ils ne s'informent pas via les réseaux (Q11, v.test=-3.75) et n'y voient aucune opportunité (Q12, v.test=-2.50).
+
+- **Absence de peur :** Ils ne s'inquiètent pas du consentement (Q4, v.test=-3.45) ni de la vie privée (Q1, v.test=-3.12) car ils ne s'investissent pas sur les plateformes.
+
+- **Usage :** Ils ne consultent jamais avant de dormir (Q9, v.test=-2.32).
+
+- **Description :** Pour eux, les réseaux sociaux sont un non-événement ; ils ne sont ni un danger, ni une aide.
+
+**Cluster 5 : Le Routinier Automatique **
+
+L'usage ici est devenu un réflexe mécanique dénué d'objectif pro.
+
+- **Rythme circadien :** Ils sont les plus actifs au réveil (Q6, v.test=2.02) et au coucher (Q9, v.test=2.01).
+
+- **Habitude :** Les réseaux font partie intégrante de leur routine (Q8, v.test=2.25).
+
+- **Manque de but :** Ils n'utilisent absolument pas les réseaux pour le professionnel (Q14, v.test=-3.05) et ne peuvent vivre sans (Q15, v.test=-2.40).
+
+- **Description :** Un profil qui consomme du contenu par pur automatisme de divertissement, par exmple l'utilisateur qui scrolle TikTok/Reels pendant 1-2h chaque soir avant de dormir sans but précis.
+
+**Cluster 6 : Le Professionnel Confiant **
+
+Ce groupe maîtrise l'outil pour sa carrière en toute sérénité.
+
+- **Focus Pro :** Leur motivation principale est d'élargir leur réseau pro (Q14, v.test=2.81).
+
+- **Confiance :** Ils se sentent en sécurité (Q5, v.test=2.66) et expriment le niveau d'inquiétude le plus bas de l'étude (Q2, v.test=-4.48).
+
+- **Description :** Un usager pragmatique qui a confiance dans les plateformes qu'il utilise comme outils de travail.
+
+# 4. Analyse de la variable Âge
+
+Après avoir identifié nos six profils comportementaux, nous avons jugé pertinent de croiser ces clusters avec l'âge des répondants. L'objectif est de vérifier si l'appartenance à un groupe est liée à une étape spécifique de la vie ou à une maturité numérique acquise avec le temps.
+
+```{r}
+library(dplyr)
+cluster_ages <- data.frame(cluster = clusters, age = data[,2] ) %>%
+  group_by(cluster) %>%
+  summarise(mean_age = mean(age, na.rm = TRUE))
+
+print(cluster_ages)
+```
+
+**L'entrée dans la vie active : Focus "Carrière" (Clusters 1 et 6)**
+
+On observe que les profils les plus jeunes (22 ans) sont les plus focalisés sur l'utilité des réseaux. Cela correspond logiquement à l'âge de l'obtention du diplôme, de la recherche de stage de fin d'études ou d'un premier emploi. Que ce soit par addiction (C1) ou par stratégie (C6), les réseaux sociaux sont pour eux des outils de survie professionnelle indispensables.
+
+**Le paradoxe de la jeunesse : L'inquiétude captive (Cluster 2)**
+
+Le groupe le plus inquiet est également l'un des plus jeunes (23.7 ans). Ce résultat illustre un phénomène sociologique majeur : une génération "Digital Native" parfaitement consciente des risques et des dérives des données, mais qui reste "captive" des plateformes par nécessité sociale, continuant à les utiliser malgré une peur réelle.
+
+**La maturité numérique : Le contrôle par l'âge (Cluster 3)**
+
+À l'inverse, le cluster le plus âgé (28.5 ans) est celui qui affiche le plus grand détachement. On peut en conclure que plus l'individu avance en âge, plus il reprend le contrôle sur son usage. Avec la maturité, les répondants s'éloignent de la dépendance émotionnelle ou routinière pour privilégier un mode de vie plus déconnecté et souverain.
+
+# 5. Conclusion 
+
+La classification automatique met en évidence l’existence de **six profils distincts d’utilisateurs**, confirmant que les attitudes vis-à-vis des réseaux sociaux ne sont pas homogènes au sein de l’échantillon.
+
+L’analyse révèle des profils contrastés, allant de **l’utilisateur fortement dépendant et utilitariste** à des individus **totalement détachés et autonomes**, en passant par des profils **inquiets mais captifs**, **routiniers automatiques** ou encore **professionnels confiants**.  
+
+Ces résultats montrent que l’intensité d’usage, la dépendance, l’utilité perçue et le rapport à la sécurité des données s’articulent différemment selon les individus, formant des logiques d’usage bien distinctes.  
+
+Ainsi, la classification complète l’ACP en traduisant les dimensions théoriques identifiées en **profils concrets d’utilisateurs**, offrant une lecture opérationnelle et synthétique des comportements face aux réseaux sociaux.
+
+
+
